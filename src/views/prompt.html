@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+    <title>Webauthz Test Resource</title>
+    <style>
+        body {
+            font-family: 'Open Sans', Geneva, Tahoma, sans-serif;
+        }
+        .error {
+            color: #770000;
+        }
+        pre {
+            border: 1px solid black;
+            padding: 5px;
+        }
+    </style>        
+    <body>
+        <h1>Webauthz Access Request</h1>
+        <form action="/webauthz/prompt" method="POST">
+            <input type="hidden" name="id" value="{{ id }}"/>
+            {{#username}}<p>Username: {{ username }}</p>{{/username}}
+            <p>Application name: {{ client_name }} ({{ client_origin }}) is requesting access to:</p>
+            <p>Resource realm: {{ realm }}</p>
+            <p>Resource scope: {{ scope }}</p>
+            <input type="submit" name="submit" value="Grant"/>
+            <input type="submit" name="submit" value="Deny"/>
+            {{#error}}<p class="error">{{ error }}</p>{{/error}}
+        </form>
+    </body>
+</html>

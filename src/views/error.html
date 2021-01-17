@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Webauthz Test Resource</title>
+        <style>
+            body {
+                font-family: 'Open Sans', Geneva, Tahoma, sans-serif;
+            }
+            .error {
+                color: #770000;
+            }
+            pre {
+                border: 1px solid black;
+                padding: 5px;
+            }
+        </style>        
+    </head>
+    <body>
+        <h1>Webauthz Test Resource</h1>
+        <p class="error">Internal server error</p>
+        {{#error.message}}<p class="error">{{ error.message }}</p>{{/error.message}}
+        {{#error.stack}}<pre>{{ error.stack }}</pre>{{/error.stack}}
+</body>
+</html>

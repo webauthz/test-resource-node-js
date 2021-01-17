@@ -1,0 +1,59 @@
+{
+  "name": "@webauthz/test-resource-node-js",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Webauthz Test Resource",
+  "keywords": [
+    "cryptium",
+    "webauthz"
+  ],
+  "homepage": "https://webauthz.org",
+  "bugs": {
+    "url": "https://github.com/webauthz/test-resource-node-js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webauthz/test-resource-node-js.git"
+  },
+  "license": "BSD-2-Clause",
+  "author": "Webauthz (https://webauthz.org)",
+  "contributors": [
+    "Jonathan Buhacoff <jonathan@cryptium.com> (https://github.com/jbuhacoff)"
+  ],
+  "main": "src/main.js",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "eslint src/** test/**",
+    "lint-fix": "eslint src/** test/** --fix",
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "@cryptium/random-node-js": "^0.3.0",
+    "@libertyio/data-collection-memory-js": "^0.2.0",
+    "@libertyio/log-node-js": "^0.1.0",
+    "@webauthz/sdk-token-data-memory-js": "^1.0.0",
+    "@webauthz/sdk-token-core-node-js": "^1.0.0",
+    "@webauthz/sdk-resource-express-node-js": "^1.0.0",
+    "axios": "^0.21.1",
+    "body-parser": "^1.19.0",
+    "cookie": "^0.4.1",
+    "express": "^4.17.1",
+    "express-urlrewrite": "^1.4.0",
+    "helmet": "^4.3.1",
+    "mustache-express": "^1.3.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^11.0.0",
+    "@libertyio/commitlint-config": "^1.0.0",
+    "@libertyio/commitlint-config-type-enum": "^1.0.0",
+    "eslint": "^7.18.0",
+    "eslint-config-airbnb-base": "^14.2.1",
+    "eslint-plugin-import": "^2.22.1",
+    "husky": "^4.3.8"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  }
+}

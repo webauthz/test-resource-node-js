@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+    <title>Webauthz Test Resource</title>
+    <style>
+        body {
+            font-family: 'Open Sans', Geneva, Tahoma, sans-serif;
+        }
+        .error {
+            color: #770000;
+        }
+        ul {
+            list-style-type: square;
+        }
+    </style>        
+    <body>
+        <h1>Webauthz Test Resource</h1>
+
+        {{#username}}
+        <p>You are logged in as {{ username }}.</p>
+        <form action="/logout" method="POST">
+            <input type="submit" value="Logout"/>
+        </form>
+
+        <p>Create new resource</p>
+        <form action="/create" method="POST">
+            <label for="resourceTitle">Resource name</label> <br/>
+            <input name="title" size="48" id="resourceTitle"/> <br/>
+            <label for="resourceContent">Resource content</label> <br/>
+            <textarea name="content" rows="16" cols="48" id="resourceContent"></textarea> <br/>
+            <input type="submit" value="Save"/>
+            {{#error}}<p class="error">{{ error }}</p>{{/error}}
+        </form>
+
+        {{#resource}}<a href="{{{ resource }}}">link to resource</a>{{/resource}}
+
+        <ul>
+            {{#list}}
+                <li><a href="/resource?id={{ id }}">{{ title }}</a></li>
+            {{/list}}
+        </ul>
+        {{/username}}
+
+        {{^username}}
+        <p>Choose any usename to log in</p>
+        <form action="/login" method="POST">
+            <label for="username">Username</label>
+            <input name="username" value="{{ username }}" size="48" id="username"/>
+            <input type="submit" value="Login"/>
+            {{#error}}<p class="error">{{ error }}</p>{{/error}}
+        </form>
+        {{/username}}
+
+    </body>
+</html>

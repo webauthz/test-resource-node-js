@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Webauthz Test Resource</title>
+        <style>
+            body {
+                font-family: 'Open Sans', Geneva, Tahoma, sans-serif;
+            }
+            .error {
+                color: #770000;
+            }
+        </style>        
+    </head>
+    <body>
+        <h1>Webauthz Test Resource</h1>
+        <p class="error">Bad request</p>
+        {{#fault}}<p class="error">{{ fault }}</p>{{/fault}}
+</body>
+</html>
