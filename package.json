@@ -34,7 +34,7 @@
     "@libertyio/data-collection-memory-js": "^0.3.0",
     "@libertyio/log-node-js": "^0.1.0",
     "@webauthz/sdk-token-data-memory-js": "^1.0.0",
-    "@webauthz/sdk-token-core-node-js": "^1.0.0",
+    "@webauthz/sdk-token-core-node-js": "^1.0.1",
     "@webauthz/sdk-resource-express-node-js": "^1.0.0",
     "axios": "^0.21.1",
     "body-parser": "^1.19.0",
