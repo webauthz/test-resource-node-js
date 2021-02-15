@@ -170,15 +170,15 @@ async function httpPostWebauthzRegister(req, res) {
     });
 }
 
-async function httpGetWebauthzRequest(req, res) {
-  const { client_id, client_state, realm, scope, path } = req.query;
+async function httpPostWebauthzRequest(req, res) {
+  const { client_state, realm, scope } = req.body;
+
+  if (!req.webauthz.isPermitted()) {
+    return req.webauthz.json({ error: 'unauthorized' });
+  }
 
   // input validation
 
-  if (typeof client_id !== 'string' || !client_id) {
-      res.status(400);
-      return res.render('fault', { fault: 'client_id required' });
-  }
   if (typeof client_state !== 'string' || !client_state) {
       res.status(400);
       return res.render('fault', { fault: 'client_state required' });
@@ -191,13 +191,9 @@ async function httpGetWebauthzRequest(req, res) {
       res.status(400);
       return res.render('fault', { fault: 'scope required' });
   }
-  if (typeof path !== 'string' || !path) {
-      res.status(400);
-      return res.render('fault', { fault: 'path required' });
-  }
 
-  // check if client_id is valid
-  const webauthzClientRecord = await database.collection('webauthz_client').fetchById(client_id);
+  // get client details 
+  const webauthzClientRecord = await database.collection('webauthz_client').fetchById(req.webauthz.client_id);
   if (typeof webauthzClientRecord !== 'object' || webauthzClientRecord === null) {
       res.status(401);
       return res.render('fault', { fault: 'unknown client' });
@@ -207,14 +203,12 @@ async function httpGetWebauthzRequest(req, res) {
 
   const webauthzRequestId = randomHex(16);
   const record = {
-      access_request_uri: `${ENDPOINT_URL}${req.originalUrl}`,
-      client_id,
+      client_id: req.webauthz.client_id,
       client_name: webauthzClientRecord.client_name, // to avoid the same lookup again later when user views the prompt
       client_state,
       client_origin: clientURL.origin,
       realm,
       scope,
-      path,
   };
   const isCreated = await database.collection('webauthz_request').insert(webauthzRequestId, record);
   if (!isCreated) {
@@ -222,9 +216,9 @@ async function httpGetWebauthzRequest(req, res) {
       return res.render('error', { error: 'failed to store webauthz request' });
   }
 
-  res.status(303);
-  res.set('Location', `/webauthz/prompt?id=${webauthzRequestId}`);
-  res.end();
+  return res.json({
+    redirect: `${ENDPOINT_URL}/webauthz/prompt?id=${webauthzRequestId}`,
+  });
 }
 
 async function httpGetWebauthzPrompt(req, res) {
@@ -337,7 +331,7 @@ async function httpPostWebauthzPromptSubmit(req, res) {
 
 // this method is accessed by Webauthz applications; response format is JSON in accordance with the specification
 async function httpPostWebauthzExchange(req, res) {
-    const { grant_token, refresh_token, access_request_uri } = req.body;
+    const { grant_token, refresh_token } = req.body;
 
     if (!req.webauthz.isPermitted()) {
         return req.webauthz.json({ error: 'unauthorized' });
@@ -370,13 +364,6 @@ async function httpPostWebauthzExchange(req, res) {
     // check the client_id matches the request record
     if (req.webauthz.client_id !== requestRecord.client_id) {
         console.error(`httpPostWebauthzExchange: client ${req.webauthz.client_id} != stored ${requestRecord.client_id}`);
-        res.status(401);
-        return res.json({ error: 'unauthorized' });
-    }
-
-    // check the access_request_uri matches the grant record
-    if (access_request_uri !== requestRecord.access_request_uri) {
-        console.error(`httpPostWebauthzExchange: input ${access_request_uri} != stored ${requestRecord.access_request_uri}`);
         res.status(401);
         return res.json({ error: 'unauthorized' });
     }
@@ -539,14 +526,14 @@ expressApp.get('/resource/:resourceId', session, webauthzResourceExpress.scope('
 
 // webauthz public routes do not require authorization
 expressApp.get('/webauthz.json', httpGetWebauthzDiscoveryJson);
-expressApp.post('/webauthz/register', bodyParser.json(), httpPostWebauthzRegister);    
-expressApp.get('/webauthz/request', httpGetWebauthzRequest); // applications redirect here to request access
+expressApp.post('/webauthz/register', bodyParser.json(), httpPostWebauthzRegister);
 
 // webauthz protected routes require a client token
+expressApp.post('/webauthz/request', webauthzAuthorizationExpress.scope('webauthz:client'), bodyParser.json(), httpPostWebauthzRequest); // applications start access requests here
 expressApp.post('/webauthz/exchange', webauthzAuthorizationExpress.scope('webauthz:client'), bodyParser.json(), httpPostWebauthzExchange); // applications exchange grant tokens for access tokens here
 
 // webauthz user interface routes use a session cookie
-expressApp.get('/webauthz/prompt', session, httpGetWebauthzPrompt); // user interface gets access request details here
+expressApp.get('/webauthz/prompt', session, httpGetWebauthzPrompt); // applications redirect here to request access
 expressApp.post('/webauthz/prompt', session, bodyParser.urlencoded({ extended: false }), httpPostWebauthzPromptSubmit); // user interface form posts user choice here with content-type application/x-www-form-urlencoded
 
 // configure user interface routes
