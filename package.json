@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@cryptium/random-node-js": "^0.3.0",
-    "@libertyio/data-collection-memory-js": "^0.2.0",
+    "@libertyio/data-collection-memory-js": "^0.3.0",
     "@libertyio/log-node-js": "^0.1.0",
     "@webauthz/sdk-token-data-memory-js": "^1.0.0",
     "@webauthz/sdk-token-core-node-js": "^1.0.0",
