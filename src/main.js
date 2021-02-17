@@ -202,6 +202,8 @@ async function httpPostWebauthzRequest(req, res) {
   const clientURL = new URL(webauthzClientRecord.grant_redirect_uri);
 
   const webauthzRequestId = randomHex(16);
+  const requestMaxAge = 15 * 60; // 15 minutes, in seconds; use null if request does not expire
+  const requestNotAfter = typeof requestMaxAge === 'number' ? Date.now() + (requestMaxAge * 1000) : null;
   const record = {
       client_id: req.webauthz.client_id,
       client_name: webauthzClientRecord.client_name, // to avoid the same lookup again later when user views the prompt
@@ -209,6 +211,7 @@ async function httpPostWebauthzRequest(req, res) {
       client_origin: clientURL.origin,
       realm,
       scope,
+      not_after: requestNotAfter,
   };
   const isCreated = await database.collection('webauthz_request').insert(webauthzRequestId, record);
   if (!isCreated) {
@@ -218,6 +221,7 @@ async function httpPostWebauthzRequest(req, res) {
 
   return res.json({
     redirect: `${ENDPOINT_URL}/webauthz/prompt?id=${webauthzRequestId}`,
+    redirect_max_seconds: requestMaxAge, // the request does not expire
   });
 }
 
@@ -237,7 +241,12 @@ async function httpGetWebauthzPrompt(req, res) {
         return res.render('fault', { fault: 'id unknown' });
     }
 
-    const { client_name, client_origin, realm, scope } = record;
+    const { client_name, client_origin, realm, scope, not_after } = record;
+
+    if (not_after && Date.now() > not_after) {
+        res.status(400);
+        return res.render('fault', { fault: 'request expired' });
+    }
 
     return res.render('prompt', { id, client_name, client_origin, realm, scope, username: req.session.username });
 }
@@ -270,6 +279,11 @@ async function httpPostWebauthzPromptSubmit(req, res) {
         return res.render('fault', { fault: "id unknown" });
     }
 
+    if (record.not_after && Date.now() > record.not_after) {
+        res.status(400);
+        return res.render('fault', { fault: 'request expired' });
+    }
+
     // add the unique identifier of the user to the request
     record.user_id = req.session.username;
 
@@ -287,22 +301,41 @@ async function httpPostWebauthzPromptSubmit(req, res) {
             return res.render('fault', { fault: "invalid submit value" });
     }
 
+    // store the user's answer in the request record
+    const isEdited = await database.collection('webauthz_request').editById(id, record);
+    if (!isEdited) {
+        res.status(500);
+        return res.render('error', { error: "failed to store request status" });
+    }
+
     let grant_token = null;
     if (record.status === 'granted') {
+        // create a new permit record with the same information; when this permit record expires, user will have to
+        // re-authorize the application's access; until then, the application can use refresh tokens to continue
+        // obtaining new access tokens
+        const permitId = randomHex(16);
+        const permitMaxAge = 90 * 24 * 60 * 60; // 90 days, in seconds; use null if permit does not expire
+        const permitNotAfter = typeof permitMaxAge === 'number' ? Date.now() + (permitMaxAge * 1000) : null;
+        const permitRecord = {
+            client_id: record.client_id,
+            realm: record.realm,
+            scope: record.scope,
+            user_id: record.user_id,
+            not_after: permitNotAfter,
+            refresh_token_expires: Date.now(), // will cause a refresh token to be issued on the first exchange
+        };
+        const isCreated = await database.collection('webauthz_permit').insert(permitId, permitRecord);
+        if (!isCreated) {
+            res.status(500);
+            return res.render('error', { error: 'failed to store webauthz request' });
+        }
 
         // we use client_id as a namespace to minimize the chance of collision; the token space is PER TYPE, PER CLIENT
-        grant_token = await webauthzToken.generateToken({ type: 'grant', client_id: record.client_id, requestId: id });      
+        grant_token = await webauthzToken.generateToken({ type: 'grant', client_id: record.client_id, permitId });      
         if (grant_token === null) {
             res.status(500);
             return res.render('error', { error: "failed to store grant token" });
         }      
-    }
-
-    const isEdited = await database.collection('webauthz_request').editById(id, record);
-
-    if (!isEdited) {
-        res.status(500);
-        return res.render('error', { error: "failed to store request status" });
     }
  
     // generate grant redirect url
@@ -328,6 +361,15 @@ async function httpPostWebauthzPromptSubmit(req, res) {
     res.end();    
 }
 
+// Math.min treats null like zero, but this function skips any non-numeric values like null;
+// Math.min returns Infinity when there are no arguments, but this function returns null when there are no numberic arguments
+function min(...args) {
+    const numbers = args.filter((value) => typeof value === 'number');
+    if (numbers.length === 0) {
+        return null;
+    }
+    return Math.min(numbers);
+}
 
 // this method is accessed by Webauthz applications; response format is JSON in accordance with the specification
 async function httpPostWebauthzExchange(req, res) {
@@ -337,11 +379,11 @@ async function httpPostWebauthzExchange(req, res) {
         return req.webauthz.json({ error: 'unauthorized' });
     }
 
-    let requestId;
+    let permitId;
     if (grant_token) {
         try {
             const grantRecord = await webauthzToken.checkToken(grant_token);
-            requestId = grantRecord.requestId;
+            permitId = grantRecord.permitId;
         } catch (err) {
             this.log.error('httpPostWebauthzExchange: invalid grant token');
             return req.webauthz.json({ error: 'unauthorized' });
@@ -351,7 +393,7 @@ async function httpPostWebauthzExchange(req, res) {
     if (refresh_token) {
         try {
             const refreshRecord = await webauthzToken.checkToken(refresh_token);
-            requestId = refreshRecord.requestId;
+            permitId = refreshRecord.permitId;
         } catch (err) {
             this.log.error('httpPostWebauthzExchange: invalid grant token');
             return req.webauthz.json({ error: 'unauthorized' });
@@ -359,11 +401,11 @@ async function httpPostWebauthzExchange(req, res) {
     }
 
     // look for the request info
-    const requestRecord = await database.collection('webauthz_request').fetchById(requestId);
+    const permitRecord = await database.collection('webauthz_permit').fetchById(permitId);
 
     // check the client_id matches the request record
-    if (req.webauthz.client_id !== requestRecord.client_id) {
-        console.error(`httpPostWebauthzExchange: client ${req.webauthz.client_id} != stored ${requestRecord.client_id}`);
+    if (req.webauthz.client_id !== permitRecord.client_id) {
+        console.error(`httpPostWebauthzExchange: client ${req.webauthz.client_id} != stored ${permitRecord.client_id}`);
         res.status(401);
         return res.json({ error: 'unauthorized' });
     }
@@ -372,27 +414,80 @@ async function httpPostWebauthzExchange(req, res) {
         client_id, // already checked above, is equal to req.webauthz.client_id
         realm,
         scope,
-        path,
-        not_after,
+        not_after, // when the permit expires
         user_id,
-    } = requestRecord;
+        refresh_token_expires, // when the last issued refresh token expires
+    } = permitRecord;
 
-    const access_token = await webauthzToken.generateToken({
+    // if the permit expired, we don't generate new tokens
+    if (not_after && Date.now() > not_after) {
+        res.status(401);
+        return res.json({ error: 'unauthorized' });
+    }
+
+    // determine how many seconds remain before permit expires
+    const permitMaxAge = typeof not_after === 'number' ? (not_after - Date.now()) / 1000 : null;
+
+    // determine access token expiration; it cannot exceed the permit expiration
+    const accessMaxAge = min(4 * 60 * 60, permitMaxAge); // 4 hours, in seconds; use null if access token does not expire
+    const accessNotAfter = typeof accessMaxAge === 'number' ? Date.now() + (accessMaxAge * 1000) : null;
+
+    const accessToken = await webauthzToken.generateToken({
         type: 'access',
         client_id,
         realm,
         scope,
-        path,
-        not_after,
+        not_after: accessNotAfter,
         user_id, // this could be added as a scope, or a separate attribute; it will be used later when checking access for SPECIFIC resources within a scope; e.g. scope is "calendar" so application can access THIS USER'S calendar, but not necessarily any OTHER calendars...
+        permitId,
     });
 
-    if (!access_token) {
+    if (!accessToken) {
         res.status(500);
         return res.json({ error: 'failed to store access token' });
     }
 
-    return res.json({ access_token });
+    // the application will need a refresh token if:
+    // 1. the access token will expire before the permit expires
+    // 2. the current refresh token will expire before the access token expires
+    const isAccessExpiringBeforePermit = typeof accessMaxAge === 'number' && typeof permitMaxAge === 'number' ? accessMaxAge < permitMaxAge : false;
+    const prevRefreshMaxAge = typeof refresh_token_expires === 'number' ? (refresh_token_expires - Date.now()) / 1000 : null;
+    const isRefreshExpiringBeforeAccess = typeof prevRefreshMaxAge === 'number' && typeof accessMaxAge === 'number' ? prevRefreshMaxAge < accessMaxAge : false;
+
+    if (isAccessExpiringBeforePermit && isRefreshExpiringBeforeAccess) {
+        // determine refresh token expiration; it cannot exceed the permit expiration
+        const refreshMaxAge = min(24 * 60 * 60, permitMaxAge); // 24 hours, in seconds; use null if refresh token does not expire
+        const refreshNotAfter = typeof refreshMaxAge === 'number' ? Date.now() + (refreshMaxAge * 1000) : null;
+
+        const refreshToken = await webauthzToken.generateToken({
+            type: 'refresh',
+            client_id,
+            realm,
+            scope,
+            not_after: refreshNotAfter,
+            user_id, // this could be added as a scope, or a separate attribute; it will be used later when checking access for SPECIFIC resources within a scope; e.g. scope is "calendar" so application can access THIS USER'S calendar, but not necessarily any OTHER calendars...
+            permitId,
+        });
+
+        permitRecord.refresh_token_expires = refreshNotAfter;
+        const isEdited = await database.collection('webauthz_permit').editById(permitId, permitRecord);
+        if (!isEdited) {
+            res.status(500);
+            return res.render('error', { error: "failed to store request status" });
+        }
+
+        return res.json({
+            access_token: accessToken,
+            access_token_max_seconds: accessMaxAge,
+            refresh_token: refreshToken,
+            refresh_token_max_seconds: refreshMaxAge,
+        });
+    }
+
+    return res.json({
+        access_token: accessToken,
+        access_token_max_seconds: accessMaxAge,
+    });
 }
 
 // create resource
